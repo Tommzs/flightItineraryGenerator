@@ -54,7 +54,7 @@ class flightSegment:
 def read_args():
     parser = argparse.ArgumentParser(description='Generate flight itineraries from input segments.')
     parser.add_argument('-i', '--input', required=False, help='input csv with flight segments', default=None)
-    parser.add_argument('-o', '--output', required=False, help='output csv with generated itineraries', default='stdout')
+    parser.add_argument('-o', '--output', required=False, help='output csv with generated itineraries', default=None)
     args = vars(parser.parse_args())
     return args['input'], args['output']
 
@@ -184,6 +184,11 @@ if __name__ == "__main__":
     header = "source, destination, departure, arrival, visited_airports, " \
              "bags_allowed, price, bag_price, prices_with_bags"
 
-    print(header)
-    for itinerary in itineraries:
-        print(itinerary.to_string())
+    if out_file_path is None:
+        print(header)
+        for itinerary in itineraries:
+            print(itinerary.to_string())
+    else:
+        with open(out_file_path, "w") as out_csv_file:
+            out_csv_file.write(header+"\n")
+            out_csv_file.writelines([itinerary.to_string()+"\n" for itinerary in itineraries])
