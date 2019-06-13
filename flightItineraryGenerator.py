@@ -2,6 +2,7 @@ import sys
 import argparse
 from datetime import datetime
 from typing import List, Any
+import copy
 
 ### Constants
 HOUR_IN_SECONDS = 1*60*60
@@ -15,25 +16,26 @@ class flightItinerary:
         self.visitedAirports = []
         self.departure = None
         self.arrival = None
+        self.destination = None
+        self.source = None
         self.price = None
         self.bags_allowed = None
         self.bag_price = None
+        self.prices_with_bags = []
 
-    def get_price_with_bags(self, num_bags):
-        if self.bags_allowed is None:
-            print("ERROR: Bags allowed is not filled", file=sys.stderr)
-            return None
-        elif self.bag_price is None:
-            print("ERROR: Bags price is not filled", file=sys.stderr)
-            return None
-        elif self.price is None:
-            print("ERROR: Price is not filled", file=sys.stderr)
-            return None
-        elif num_bags > self.bags_allowed:
-            print("ERROR: Maximum bags allowed is {} which is less than {}".format(self.bags_allowed, num_bags), file=sys.stderr)
-            return None
-        else:
-            return self.price+num_bags*self.bag_price
+
+    def to_string(self):
+        out_str = "{}, {}, {}, {}, {}, {}, {}, {}, {}".format(self.source,
+                                                              self.destination,
+                                                              str(self.departure),
+                                                              str(self.arrival),
+                                                              str(self.visitedAirports),
+                                                              self.bags_allowed,
+                                                              self.price,
+                                                              self.bag_price,
+                                                              self.prices_with_bags)
+        return out_str
+
 
 class flightSegment:
     """ flightSegment represents one flight segment"""
@@ -45,13 +47,13 @@ class flightSegment:
         self.arrival = arrival
         self.price = price
         self.bags_allowed = bags_allowed
-        self.bags_price = bag_price
+        self.bag_price = bag_price
 
 
 ### Public functions
 def read_args():
     parser = argparse.ArgumentParser(description='Generate flight itineraries from input segments.')
-    parser.add_argument('-i', '--input', required=False, help='input csv with flight segments', default='None')
+    parser.add_argument('-i', '--input', required=False, help='input csv with flight segments', default=None)
     parser.add_argument('-o', '--output', required=False, help='output csv with generated itineraries', default='stdout')
     args = vars(parser.parse_args())
     return args['input'], args['output']
@@ -111,9 +113,62 @@ def generate_graph(segments: List[flightSegment]):
     return directed_graph
 
 
-def generate_itineraries(flight_segs, flight_graph):
-    #TODO: Do DFS with parent map generating set of itineraries once there is nowhere to explore
-    None
+def generate_pseudoitinerary(start_node, curr_node, parent_dict):
+    pseudoitinerary = []
+    while curr_node != start_node:
+        pseudoitinerary.insert(0, curr_node)
+        curr_node = parent_dict[curr_node]
+    return pseudoitinerary
+
+
+def itineraries_from_pseudoitinerary(flight_seg, pseudoitinerary):
+    prev_itinerary = flightItinerary()
+    prev_itinerary.visitedAirports.append(flight_seg.source)
+    prev_itinerary.visitedAirports.append(flight_seg.destination)
+    prev_itinerary.arrival = flight_seg.arrival
+    prev_itinerary.departure = flight_seg.departure
+    prev_itinerary.source = flight_seg.source
+    prev_itinerary.destination = flight_seg.destination
+    prev_itinerary.price = flight_seg.price
+    prev_itinerary.bag_price = flight_seg.bag_price
+    prev_itinerary.bags_allowed = flight_seg.bags_allowed
+    prev_itinerary.prices_with_bags = [prev_itinerary.price+(num_bags*prev_itinerary.bag_price) for num_bags in range(0, prev_itinerary.bags_allowed+1)]
+
+    itineraries = [prev_itinerary]
+    for node in pseudoitinerary:
+        new_itinerary = copy.deepcopy(prev_itinerary)
+        new_itinerary.visitedAirports.append(node.destination)
+        new_itinerary.arrival = node.arrival
+        new_itinerary.destination = node.destination
+        new_itinerary.price += node.price
+        new_itinerary.bag_price += node.bag_price
+        new_itinerary.bags_allowed = min(prev_itinerary.bags_allowed, node.bags_allowed)
+        new_itinerary.prices_with_bags = [new_itinerary.price+(num_bags*new_itinerary.bag_price) for num_bags in range(0, new_itinerary.bags_allowed+1)]
+        itineraries.append(new_itinerary)
+        prev_itinerary = new_itinerary
+    itineraries.pop(0)
+
+    return itineraries
+
+
+def generate_itineraries(flight_seg, flight_graph):
+    dsf_stack = [flight_seg]
+    visited_airports = [flight_seg.source]
+    parent_dict = {}
+    itineraries = []
+    while len(dsf_stack) > 0:
+        curr_node = dsf_stack.pop()
+        visited_airports.append(curr_node.destination)
+        explorable = list(filter(lambda node: node.destination not in visited_airports, flight_graph[curr_node]))
+        if len(explorable) > 0:
+            for child_node in explorable:
+                dsf_stack.append(child_node)
+                parent_dict[child_node] = curr_node
+        else:
+            pseudoitinerary = generate_pseudoitinerary(flight_seg, curr_node, parent_dict)
+            if len(pseudoitinerary) > 0:
+                itineraries += itineraries_from_pseudoitinerary(flight_seg, pseudoitinerary)
+    return itineraries
 
 
 if __name__ == "__main__":
@@ -124,4 +179,11 @@ if __name__ == "__main__":
     flight_graph = generate_graph(flight_segs)
     itineraries = []
     for flight_seg in flight_segs:
-        generate_itineraries(flight_seg, flight_graph)
+        itineraries += generate_itineraries(flight_seg, flight_graph)
+
+    header = "source, destination, departure, arrival, visited_airports, " \
+             "bags_allowed, price, bag_price, prices_with_bags"
+
+    print(header)
+    for itinerary in itineraries:
+        print(itinerary.to_string())
